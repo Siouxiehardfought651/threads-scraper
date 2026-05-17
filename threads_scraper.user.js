@@ -309,11 +309,15 @@
                 </button>
                 <button class="btn btn-dl" id="ts-dl" disabled>
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7,10 12,15 17,10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                    Download JSON
+                    JSON
                 </button>
                 <button class="btn btn-csv" id="ts-csv" disabled>
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14,2 14,8 20,8"/></svg>
-                    Download CSV
+                    CSV
+                </button>
+                <button class="btn btn-csv" id="ts-md" disabled>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16v16H4z"/><path d="M7 15V9l2.5 3L12 9v6"/><path d="M16 9v6l2-2"/></svg>
+                    Markdown
                 </button>
             </div>
 
@@ -328,6 +332,7 @@
         document.getElementById('ts-stop').onclick = () => { shouldStop = true; };
         document.getElementById('ts-dl').onclick = downloadJSON;
         document.getElementById('ts-csv').onclick = downloadCSV;
+        document.getElementById('ts-md').onclick = downloadMarkdown;
 
         const toggle = document.getElementById('ts-toggle-replies');
         document.getElementById('ts-switch-replies').onclick = () => {
@@ -360,12 +365,14 @@
         const stop = document.getElementById('ts-stop');
         const dl = document.getElementById('ts-dl');
         const csv = document.getElementById('ts-csv');
+        const md = document.getElementById('ts-md');
         if (state === 'run') {
-            go.disabled = true; stop.disabled = false; dl.disabled = true; csv.disabled = true;
+            go.disabled = true; stop.disabled = false; dl.disabled = true; csv.disabled = true; md.disabled = true;
         } else {
             go.disabled = false; stop.disabled = true;
             dl.disabled = collectedPosts.size === 0;
             csv.disabled = collectedPosts.size === 0;
+            md.disabled = collectedPosts.size === 0;
         }
     }
 
@@ -905,6 +912,75 @@
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
         log(`📊 ${filename}`);
+    }
+
+    // ==================== DOWNLOAD MARKDOWN ====================
+    function downloadMarkdown() {
+        const posts = Array.from(collectedPosts.values());
+        const pathMatch = window.location.pathname.match(/^\/@([^/]+)/);
+        const username = pathMatch ? pathMatch[1] : 'unknown';
+
+        let md = `# @${username} — Threads Archive\n\n`;
+        md += `> Scraped on ${new Date().toLocaleDateString('id-ID', { year: 'numeric', month: 'long', day: 'numeric' })}\n`;
+        md += `> Total: ${posts.length} posts\n\n`;
+        md += `---\n\n`;
+
+        for (const post of posts) {
+            // Post header
+            const date = post.time ? new Date(post.time).toLocaleDateString('id-ID', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
+            md += `## ${date}\n\n`;
+
+            // Post text
+            if (post.text) {
+                md += `${post.text}\n\n`;
+            } else {
+                md += `*(no text — image/video only)*\n\n`;
+            }
+
+            // Media
+            if (post.images && post.images.length > 0) {
+                md += `📷 ${post.images.length} image(s)\n\n`;
+            }
+            if (post.has_video) {
+                md += `🎬 Video\n\n`;
+            }
+
+            // Likes
+            if (post.like_count > 0) {
+                md += `❤️ ${post.like_count} likes\n\n`;
+            }
+
+            // Conversations (deep mode)
+            if (post.conversations && post.conversations.length > 0) {
+                md += `### 💬 Conversations\n\n`;
+                for (const convo of post.conversations) {
+                    if (convo.user_comment) {
+                        md += `> **@${convo.user_comment.username}:** ${convo.user_comment.text}\n\n`;
+                    }
+                    if (convo.creator_reply) {
+                        md += `> **@${convo.creator_reply.username} (creator):** ${convo.creator_reply.text}\n\n`;
+                    }
+                    md += `\n`;
+                }
+            }
+
+            // Link
+            md += `🔗 [Open post](${post.url})\n\n`;
+            md += `---\n\n`;
+        }
+
+        const blob = new Blob([md], { type: 'text/markdown;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const filename = `${username}_threads_${new Date().toISOString().slice(0, 10)}.md`;
+
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        log(`📝 ${filename}`);
     }
 
     // ==================== INIT ====================
