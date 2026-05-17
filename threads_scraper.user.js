@@ -677,7 +677,16 @@
         const posts = Array.from(collectedPosts.values());
         const total = posts.length;
         let completed = 0;
-        let totalComments = 0;
+        let totalConversations = 0;
+
+        // Get the profile username (the creator)
+        const pathMatch = window.location.pathname.match(/^\/@([^/]+)/);
+        const creatorUsername = pathMatch ? pathMatch[1] : '';
+
+        if (!creatorUsername) {
+            log('⚠️ Cannot detect creator username');
+            return;
+        }
 
         for (const post of posts) {
             if (shouldStop) break;
@@ -685,10 +694,14 @@
             log(`🔍 Deep ${completed}/${total}: ${post.code}`);
 
             try {
-                const comments = await fetchPostComments(post.url || post.code);
-                if (comments.length > 0) {
-                    post.comments = comments;
-                    totalComments += comments.length;
+                const allComments = await fetchPostComments(post.url || post.code);
+
+                // Filter: only keep conversations where creator replied
+                const conversations = filterCreatorConversations(allComments, creatorUsername);
+
+                if (conversations.length > 0) {
+                    post.conversations = conversations;
+                    totalConversations += conversations.length;
                 }
             } catch (e) {
                 // skip failed posts
@@ -697,7 +710,67 @@
             await sleep(delay);
         }
 
-        log(`🔍 Deep done: ${totalComments} comments from ${completed} posts`);
+        log(`🔍 Deep done: ${totalConversations} conversations (creator replied)`);
+    }
+
+    function filterCreatorConversations(comments, creatorUsername) {
+        /**
+         * Only keep comments that are part of a conversation
+         * where the creator actually replied.
+         *
+         * Returns array of conversation objects:
+         * { user_comment: {...}, creator_reply: {...} }
+         */
+        const conversations = [];
+        const creatorLower = creatorUsername.toLowerCase();
+
+        // Find all creator replies
+        const creatorReplies = comments.filter(c => c.username.toLowerCase() === creatorLower);
+
+        if (creatorReplies.length === 0) return conversations;
+
+        // For each non-creator comment, check if creator replied after it
+        const otherComments = comments.filter(c => c.username.toLowerCase() !== creatorLower);
+
+        for (const userComment of otherComments) {
+            // Find creator reply that came after this comment
+            const reply = creatorReplies.find(cr =>
+                cr.published_on && userComment.published_on &&
+                cr.published_on > userComment.published_on
+            );
+
+            if (reply) {
+                conversations.push({
+                    user_comment: {
+                        text: userComment.text,
+                        username: userComment.username,
+                        time: userComment.published_on,
+                    },
+                    creator_reply: {
+                        text: reply.text,
+                        username: reply.username,
+                        time: reply.published_on,
+                    },
+                });
+            }
+        }
+
+        // Also include creator self-replies (creator replying to own post for context)
+        // These are usually pinned comments or additional info
+        if (otherComments.length === 0 && creatorReplies.length > 0) {
+            for (const cr of creatorReplies) {
+                conversations.push({
+                    user_comment: null,
+                    creator_reply: {
+                        text: cr.text,
+                        username: cr.username,
+                        time: cr.published_on,
+                    },
+                });
+            }
+        }
+
+        return conversations;
     }
 
     async function fetchPostComments(urlOrCode) {
@@ -773,14 +846,14 @@
         const pathMatch = window.location.pathname.match(/^\/@([^/]+)/);
         const username = pathMatch ? pathMatch[1] : 'unknown';
 
-        const totalComments = posts.reduce((sum, p) => sum + (p.comments?.length || 0), 0);
+        const totalComments = posts.reduce((sum, p) => sum + (p.conversations?.length || 0), 0);
 
         const result = {
             username,
             url: window.location.href,
             total: posts.length,
             total_with_text: posts.filter(p => p.text).length,
-            total_comments: totalComments,
+            total_conversations: totalComments,
             scraped_at: new Date().toISOString(),
             posts,
         };
