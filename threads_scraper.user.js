@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Threads Full Post Scraper (DOM)
 // @namespace    https://threads.com/
-// @version      4.0.0
+// @version      4.1.0
 // @description  Scrape semua post + replies user Threads via DOM parsing. Zero setup, no ad blocker issues.
 // @author       You
 // @match        https://www.threads.net/@*
@@ -267,7 +267,7 @@
             <div class="ts-header">
                 <div class="ts-title">
                     <span>Threads Scraper</span>
-                    <span class="ts-badge">v4</span>
+                    <span class="ts-badge">v4.1</span>
                 </div>
                 <button class="close-btn" id="ts-x">✕</button>
             </div>
@@ -280,6 +280,11 @@
             <div class="ts-switch" id="ts-switch-replies">
                 <span class="ts-switch-label">Include replies tab</span>
                 <div class="ts-toggle active" id="ts-toggle-replies"></div>
+            </div>
+
+            <div class="ts-switch" id="ts-switch-deep">
+                <span class="ts-switch-label">Deep mode (scrape comments)</span>
+                <div class="ts-toggle" id="ts-toggle-deep"></div>
             </div>
 
             <div class="ts-stats" id="ts-stats" style="display:none;">
@@ -327,6 +332,11 @@
         const toggle = document.getElementById('ts-toggle-replies');
         document.getElementById('ts-switch-replies').onclick = () => {
             toggle.classList.toggle('active');
+        };
+
+        const toggleDeep = document.getElementById('ts-toggle-deep');
+        document.getElementById('ts-switch-deep').onclick = () => {
+            toggleDeep.classList.toggle('active');
         };
     }
 
@@ -532,6 +542,7 @@
 
         const delay = parseInt(document.getElementById('ts-delay').value) || CONFIG.scrollDelay;
         const includeReplies = document.getElementById('ts-toggle-replies').classList.contains('active');
+        const deepMode = document.getElementById('ts-toggle-deep').classList.contains('active');
 
         log('🚀 Starting...');
 
@@ -559,6 +570,12 @@
             } else {
                 log('⚠️ Replies tab not found');
             }
+        }
+
+        // Phase 3: Deep mode — open each post and scrape comments
+        if (deepMode && !shouldStop) {
+            log('🔍 Deep mode: scraping comments...');
+            await scrapeDeepComments(delay);
         }
 
         if (shouldStop) log('⏹ Stopped');
@@ -655,17 +672,115 @@
         return null;
     }
 
+    // ==================== DEEP MODE ====================
+    async function scrapeDeepComments(delay) {
+        const posts = Array.from(collectedPosts.values());
+        const total = posts.length;
+        let completed = 0;
+        let totalComments = 0;
+
+        for (const post of posts) {
+            if (shouldStop) break;
+            completed++;
+            log(`🔍 Deep ${completed}/${total}: ${post.code}`);
+
+            try {
+                const comments = await fetchPostComments(post.url || post.code);
+                if (comments.length > 0) {
+                    post.comments = comments;
+                    totalComments += comments.length;
+                }
+            } catch (e) {
+                // skip failed posts
+            }
+
+            await sleep(delay);
+        }
+
+        log(`🔍 Deep done: ${totalComments} comments from ${completed} posts`);
+    }
+
+    async function fetchPostComments(urlOrCode) {
+        const url = urlOrCode.startsWith('http') ? urlOrCode : `https://${window.location.hostname}/t/${urlOrCode}/`;
+        const comments = [];
+
+        try {
+            const resp = await fetch(url, {
+                headers: { 'Accept': 'text/html' },
+                credentials: 'include',
+            });
+            if (!resp.ok) return comments;
+
+            const html = await resp.text();
+
+            // Extract from hidden JSON script tags
+            const scriptRegex = /<script[^>]*type="application\/json"[^>]*data-sjs[^>]*>([\s\S]*?)<\/script>/g;
+            let match;
+
+            while ((match = scriptRegex.exec(html)) !== null) {
+                const content = match[1];
+                if (!content.includes('thread_items')) continue;
+
+                try {
+                    const data = JSON.parse(content);
+                    const threadItems = findNestedKey(data, 'thread_items');
+
+                    for (const items of threadItems) {
+                        if (!Array.isArray(items) || items.length < 2) continue;
+                        // First item = original post, rest = comments
+                        for (let i = 1; i < items.length; i++) {
+                            const item = items[i];
+                            const post = item?.post;
+                            if (!post) continue;
+
+                            comments.push({
+                                text: post.caption?.text || '',
+                                username: post.user?.username || '',
+                                published_on: post.taken_at || null,
+                                like_count: post.like_count || 0,
+                                code: post.code || '',
+                            });
+                        }
+                    }
+                } catch (e) {
+                    // skip parse errors
+                }
+            }
+        } catch (e) {
+            // fetch failed
+        }
+
+        return comments;
+    }
+
+    function findNestedKey(obj, key) {
+        const results = [];
+        function search(o) {
+            if (!o || typeof o !== 'object') return;
+            if (Array.isArray(o)) { for (const item of o) search(item); return; }
+            for (const [k, v] of Object.entries(o)) {
+                if (k === key) results.push(v);
+                else search(v);
+            }
+        }
+        search(obj);
+        return results;
+    }
+
     // ==================== DOWNLOAD JSON ====================
     function downloadJSON() {
         const posts = Array.from(collectedPosts.values());
         const pathMatch = window.location.pathname.match(/^\/@([^/]+)/);
         const username = pathMatch ? pathMatch[1] : 'unknown';
 
+        const totalComments = posts.reduce((sum, p) => sum + (p.comments?.length || 0), 0);
+
         const result = {
             username,
             url: window.location.href,
             total: posts.length,
             total_with_text: posts.filter(p => p.text).length,
+            total_comments: totalComments,
             scraped_at: new Date().toISOString(),
             posts,
         };
