@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Threads Full Post Scraper (DOM)
 // @namespace    https://threads.com/
-// @version      4.1.0
+// @version      4.2.0
 // @description  Scrape semua post + replies user Threads via DOM parsing. Zero setup, no ad blocker issues.
 // @author       You
 // @match        https://www.threads.net/@*
@@ -983,9 +983,252 @@
         log(`📝 ${filename}`);
     }
 
+    // ==================== SINGLE POST MODE ====================
+    function isSinglePostPage() {
+        return /\/@[^/]+\/post\/[A-Za-z0-9_-]+/.test(window.location.pathname) ||
+               /\/t\/[A-Za-z0-9_-]+/.test(window.location.pathname);
+    }
+
+    function createSinglePostPanel() {
+        if (document.getElementById('ts-panel')) return;
+        const panel = document.createElement('div');
+        panel.id = 'ts-panel';
+        panel.innerHTML = `
+            <div class="ts-header">
+                <div class="ts-title">
+                    <span>Threads Scraper</span>
+                    <span class="ts-badge">post</span>
+                </div>
+                <button class="close-btn" id="ts-x">✕</button>
+            </div>
+
+            <p style="color:#a1a1aa; margin:0 0 14px; font-size:12px; line-height:1.5;">
+                Scrape all comments from this single post — answered or not.
+            </p>
+
+            <div class="ts-stats" id="ts-stats" style="display:none;">
+                <div class="ts-stat">
+                    <div class="ts-stat-value" id="ts-count-posts">0</div>
+                    <div class="ts-stat-label">Comments</div>
+                </div>
+                <div class="ts-stat">
+                    <div class="ts-stat-value" id="ts-count-text">0</div>
+                    <div class="ts-stat-label">With text</div>
+                </div>
+            </div>
+
+            <div class="ts-actions">
+                <button class="btn btn-go" id="ts-go-single">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                    Scrape All Comments
+                </button>
+                <button class="btn btn-dl" id="ts-dl" disabled>
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>
+                    JSON
+                </button>
+                <button class="btn btn-csv" id="ts-md" disabled>
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/></svg>
+                    Markdown
+                </button>
+            </div>
+
+            <div class="ts-log" id="ts-log">
+                <div class="log-entry"><span class="log-time">ready</span> — Click to scrape all comments</div>
+            </div>
+        `;
+        document.body.appendChild(panel);
+
+        document.getElementById('ts-x').onclick = () => panel.remove();
+        document.getElementById('ts-go-single').onclick = scrapeSinglePost;
+        document.getElementById('ts-dl').onclick = downloadSingleJSON;
+        document.getElementById('ts-md').onclick = downloadSingleMarkdown;
+    }
+
+    let singlePostData = null;
+
+    async function scrapeSinglePost() {
+        const btn = document.getElementById('ts-go-single');
+        btn.disabled = true;
+
+        log('🔍 Scraping comments...');
+
+        // Step 1: Extract from page hidden JSON (initial comments)
+        const comments = [];
+        const scripts = document.querySelectorAll('script[type="application/json"][data-sjs]');
+
+        for (const script of scripts) {
+            const text = script.textContent;
+            if (!text || !text.includes('thread_items')) continue;
+
+            try {
+                const data = JSON.parse(text);
+                const threadItems = findNestedKey(data, 'thread_items');
+
+                for (const items of threadItems) {
+                    if (!Array.isArray(items)) continue;
+                    for (const item of items) {
+                        const post = item?.post;
+                        if (!post) continue;
+                        comments.push({
+                            text: post.caption?.text || '',
+                            username: post.user?.username || '',
+                            user_pic: post.user?.profile_pic_url || '',
+                            published_on: post.taken_at || null,
+                            like_count: post.like_count || 0,
+                            code: post.code || '',
+                            is_verified: post.user?.is_verified || false,
+                        });
+                    }
+                }
+            } catch (e) {}
+        }
+
+        // Step 2: Also extract from visible DOM (scroll to load more)
+        log('📜 Scrolling for more comments...');
+        let prevCount = comments.length;
+        let noNew = 0;
+
+        for (let i = 0; i < 30 && noNew < 5; i++) {
+            window.scrollBy(0, window.innerHeight * 0.6);
+            await sleep(1500);
+
+            // Extract from DOM
+            const domComments = extractCommentsFromDOM();
+            for (const dc of domComments) {
+                const exists = comments.find(c => c.username === dc.username && c.text === dc.text);
+                if (!exists && dc.text) {
+                    comments.push(dc);
+                }
+            }
+
+            if (comments.length === prevCount) {
+                noNew++;
+            } else {
+                noNew = 0;
+                prevCount = comments.length;
+            }
+        }
+
+        // Separate original post from comments
+        const originalPost = comments.length > 0 ? comments[0] : null;
+        const allComments = comments.slice(1);
+
+        singlePostData = {
+            url: window.location.href,
+            original_post: originalPost,
+            comments: allComments,
+            total_comments: allComments.length,
+            scraped_at: new Date().toISOString(),
+        };
+
+        // Update stats
+        const statsEl = document.getElementById('ts-stats');
+        if (statsEl) statsEl.style.display = 'grid';
+        const countEl = document.getElementById('ts-count-posts');
+        if (countEl) countEl.textContent = allComments.length;
+        const textEl = document.getElementById('ts-count-text');
+        if (textEl) textEl.textContent = allComments.filter(c => c.text).length;
+
+        log(`✅ Done: ${allComments.length} comments`);
+
+        btn.disabled = false;
+        document.getElementById('ts-dl').disabled = false;
+        document.getElementById('ts-md').disabled = false;
+    }
+
+    function extractCommentsFromDOM() {
+        const comments = [];
+        const textEls = document.querySelectorAll('span[dir="auto"], div[dir="auto"]');
+        const seen = new Set();
+
+        for (const el of textEls) {
+            const text = (el.innerText || '').trim();
+            if (text.length < 3 || seen.has(text)) continue;
+            if (/^\d+[smhdw]$/.test(text)) continue;
+            if (['Ikuti', 'Follow', 'Diikuti', 'Lainnya', 'More', 'Balas'].includes(text)) continue;
+
+            // Find username near this text
+            const container = el.closest('[data-pressable-container]') || el.parentElement?.parentElement?.parentElement?.parentElement;
+            if (!container) continue;
+
+            let username = '';
+            const links = container.querySelectorAll('a[href*="/@"]');
+            for (const link of links) {
+                const m = link.getAttribute('href')?.match(/\/@([^/]+)/);
+                if (m) { username = m[1]; break; }
+            }
+
+            if (text.length > 5) {
+                seen.add(text);
+                comments.push({ text, username, published_on: null, like_count: 0 });
+            }
+        }
+
+        return comments;
+    }
+
+    function downloadSingleJSON() {
+        if (!singlePostData) return;
+        const json = JSON.stringify(singlePostData, null, 2);
+        const blob = new Blob([json], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+
+        const code = window.location.pathname.match(/\/post\/([^/]+)/) || window.location.pathname.match(/\/t\/([^/]+)/);
+        const filename = `thread_${code ? code[1] : 'post'}_comments.json`;
+
+        const a = document.createElement('a');
+        a.href = url; a.download = filename;
+        document.body.appendChild(a); a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        log(`💾 ${filename}`);
+    }
+
+    function downloadSingleMarkdown() {
+        if (!singlePostData) return;
+        const { original_post, comments } = singlePostData;
+
+        let md = `# Thread Discussion\n\n`;
+        md += `> Scraped on ${new Date().toLocaleDateString('id-ID', { year: 'numeric', month: 'long', day: 'numeric' })}\n\n`;
+
+        if (original_post) {
+            md += `## Original Post by @${original_post.username}\n\n`;
+            md += `${original_post.text || '*(media only)*'}\n\n`;
+            if (original_post.like_count) md += `❤️ ${original_post.like_count} likes\n\n`;
+            md += `---\n\n`;
+        }
+
+        md += `## Comments (${comments.length})\n\n`;
+
+        for (const c of comments) {
+            md += `**@${c.username}**\n`;
+            md += `${c.text || '*(no text)*'}\n`;
+            if (c.like_count) md += `❤️ ${c.like_count}`;
+            md += `\n\n---\n\n`;
+        }
+
+        md += `\n🔗 [Open thread](${singlePostData.url})\n`;
+
+        const blob = new Blob([md], { type: 'text/markdown;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const code = window.location.pathname.match(/\/post\/([^/]+)/) || window.location.pathname.match(/\/t\/([^/]+)/);
+        const filename = `thread_${code ? code[1] : 'post'}_comments.md`;
+
+        const a = document.createElement('a');
+        a.href = url; a.download = filename;
+        document.body.appendChild(a); a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        log(`📝 ${filename}`);
+    }
+
     // ==================== INIT ====================
     function init() {
-        createPanel();
+        if (isSinglePostPage()) {
+            createSinglePostPanel();
+        } else {
+            createPanel();
+        }
     }
 
     setTimeout(init, 2000);
