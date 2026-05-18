@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Threads Full Post Scraper (DOM)
 // @namespace    https://threads.com/
-// @version      4.2.0
+// @version      4.4.0
 // @description  Scrape semua post + replies user Threads via DOM parsing. Zero setup, no ad blocker issues.
 // @author       You
 // @match        https://www.threads.net/@*
@@ -267,7 +267,7 @@
             <div class="ts-header">
                 <div class="ts-title">
                     <span>Threads Scraper</span>
-                    <span class="ts-badge">v4.1</span>
+                    <span class="ts-badge">v4.4</span>
                 </div>
                 <button class="close-btn" id="ts-x">✕</button>
             </div>
@@ -868,7 +868,7 @@
         const json = JSON.stringify(result, null, 2);
         const blob = new Blob([json], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
-        const filename = `${username}_threads_${new Date().toISOString().slice(0, 10)}.json`;
+        const filename = `${username}_posts_${new Date().toISOString().slice(0, 10)}.json`;
 
         const a = document.createElement('a');
         a.href = url;
@@ -902,7 +902,7 @@
         const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
         const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
         const url = URL.createObjectURL(blob);
-        const filename = `${username}_threads_${new Date().toISOString().slice(0, 10)}.csv`;
+        const filename = `${username}_posts_${new Date().toISOString().slice(0, 10)}.csv`;
 
         const a = document.createElement('a');
         a.href = url;
@@ -971,7 +971,7 @@
 
         const blob = new Blob([md], { type: 'text/markdown;charset=utf-8;' });
         const url = URL.createObjectURL(blob);
-        const filename = `${username}_threads_${new Date().toISOString().slice(0, 10)}.md`;
+        const filename = `${username}_posts_${new Date().toISOString().slice(0, 10)}.md`;
 
         const a = document.createElement('a');
         a.href = url;
@@ -1006,6 +1006,16 @@
                 Scrape all comments from this single post — answered or not.
             </p>
 
+            <div class="ts-switch" id="ts-switch-replies">
+                <span class="ts-switch-label">Ambil balasan (nested)</span>
+                <div class="ts-toggle" id="ts-toggle-nested"></div>
+            </div>
+
+            <div class="ts-section" id="ts-threshold-section" style="display:none;">
+                <label class="ts-label">Minimal balasan (skip jika kurang)</label>
+                <input type="number" class="ts-input" id="ts-reply-threshold" value="1" min="1" step="1">
+            </div>
+
             <div class="ts-stats" id="ts-stats" style="display:none;">
                 <div class="ts-stat">
                     <div class="ts-stat-value" id="ts-count-posts">0</div>
@@ -1013,7 +1023,7 @@
                 </div>
                 <div class="ts-stat">
                     <div class="ts-stat-value" id="ts-count-text">0</div>
-                    <div class="ts-stat-label">With text</div>
+                    <div class="ts-stat-label">Replies</div>
                 </div>
             </div>
 
@@ -1021,6 +1031,10 @@
                 <button class="btn btn-go" id="ts-go-single">
                     <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
                     Scrape All Comments
+                </button>
+                <button class="btn btn-stop" id="ts-stop-single" disabled>
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>
+                    Stop
                 </button>
                 <button class="btn btn-dl" id="ts-dl" disabled>
                     <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>
@@ -1040,20 +1054,35 @@
 
         document.getElementById('ts-x').onclick = () => panel.remove();
         document.getElementById('ts-go-single').onclick = scrapeSinglePost;
+        document.getElementById('ts-stop-single').onclick = () => { shouldStop = true; };
         document.getElementById('ts-dl').onclick = downloadSingleJSON;
         document.getElementById('ts-md').onclick = downloadSingleMarkdown;
+
+        const toggleNested = document.getElementById('ts-toggle-nested');
+        const thresholdSection = document.getElementById('ts-threshold-section');
+        document.getElementById('ts-switch-replies').onclick = () => {
+            toggleNested.classList.toggle('active');
+            thresholdSection.style.display = toggleNested.classList.contains('active') ? 'block' : 'none';
+        };
     }
 
     let singlePostData = null;
 
     async function scrapeSinglePost() {
         const btn = document.getElementById('ts-go-single');
+        const stopBtn = document.getElementById('ts-stop-single');
         btn.disabled = true;
+        stopBtn.disabled = false;
+        shouldStop = false;
+
+        const includeReplies = document.getElementById('ts-toggle-nested').classList.contains('active');
+        const replyThreshold = parseInt(document.getElementById('ts-reply-threshold')?.value) || 1;
 
         log('🔍 Scraping comments...');
 
-        // Step 1: Extract from page hidden JSON (initial comments)
+        // Step 1: Extract from page hidden JSON (initial comments — high quality)
         const comments = [];
+        const jsonTexts = new Set(); // Track text from JSON for dedup
         const scripts = document.querySelectorAll('script[type="application/json"][data-sjs]');
 
         for (const script of scripts) {
@@ -1069,15 +1098,30 @@
                     for (const item of items) {
                         const post = item?.post;
                         if (!post) continue;
+
+                        const commentText = post.caption?.text || '';
+                        const commentUsername = post.user?.username || '';
+
+                        // Skip entries without username or text
+                        if (!commentUsername && !commentText) continue;
+
                         comments.push({
-                            text: post.caption?.text || '',
-                            username: post.user?.username || '',
+                            text: commentText,
+                            username: commentUsername,
                             user_pic: post.user?.profile_pic_url || '',
                             published_on: post.taken_at || null,
                             like_count: post.like_count || 0,
                             code: post.code || '',
                             is_verified: post.user?.is_verified || false,
+                            reply_count: post.text_post_app_info?.direct_reply_count
+                                || post.direct_reply_count
+                                || post.comment_count
+                                || 0,
+                            replies: [],
                         });
+
+                        // Track for dedup
+                        if (commentText) jsonTexts.add(commentText);
                     }
                 }
             } catch (e) {}
@@ -1088,17 +1132,54 @@
         let prevCount = comments.length;
         let noNew = 0;
 
-        for (let i = 0; i < 30 && noNew < 5; i++) {
+        for (let i = 0; i < 30 && noNew < 5 && !shouldStop; i++) {
             window.scrollBy(0, window.innerHeight * 0.6);
             await sleep(1500);
 
             // Extract from DOM
             const domComments = extractCommentsFromDOM();
             for (const dc of domComments) {
-                const exists = comments.find(c => c.username === dc.username && c.text === dc.text);
-                if (!exists && dc.text) {
-                    comments.push(dc);
+                if (!dc.text || !dc.username) continue;
+
+                // Normalize whitespace for comparison
+                const dcNorm = dc.text.replace(/\s+/g, ' ').trim();
+
+                // Dedup: exact match (with whitespace normalization)
+                const exactMatch = comments.find(c =>
+                    c.username === dc.username &&
+                    c.text.replace(/\s+/g, ' ').trim() === dcNorm
+                );
+                if (exactMatch) continue;
+
+                // Dedup: check if DOM text is a substring of an existing JSON comment
+                let isFragment = false;
+                for (const jsonText of jsonTexts) {
+                    const jsonNorm = jsonText.replace(/\s+/g, ' ').trim();
+                    if (jsonNorm.includes(dcNorm) || dcNorm.includes(jsonNorm)) {
+                        isFragment = true;
+                        break;
+                    }
                 }
+                if (isFragment) continue;
+
+                // Dedup: check if this text already exists from same user (partial overlap)
+                const sameUserMatch = comments.find(c => {
+                    if (c.username !== dc.username) return false;
+                    const cNorm = c.text.replace(/\s+/g, ' ').trim();
+                    return cNorm.includes(dcNorm) ||
+                           dcNorm.includes(cNorm) ||
+                           (dcNorm.length > 30 && cNorm.startsWith(dcNorm.substring(0, 30)));
+                });
+                if (sameUserMatch) {
+                    if (dc.text.length > sameUserMatch.text.length) {
+                        sameUserMatch.text = dc.text;
+                    }
+                    continue;
+                }
+
+                dc.replies = [];
+                dc.reply_count = 0;
+                comments.push(dc);
             }
 
             if (comments.length === prevCount) {
@@ -1109,15 +1190,81 @@
             }
         }
 
+        // Step 3: Final cleanup — remove invalid entries
+        const cleanedComments = comments.filter(c => {
+            if (!c.username) return false;
+            if (!c.text || c.text.trim().length < 2) return false;
+            return true;
+        });
+
         // Separate original post from comments
-        const originalPost = comments.length > 0 ? comments[0] : null;
-        const allComments = comments.slice(1);
+        const originalPost = cleanedComments.length > 0 ? cleanedComments[0] : null;
+        const allComments = cleanedComments.slice(1);
+
+        log(`📝 ${allComments.length} comments found`);
+
+        // Step 4: Fetch nested replies if enabled
+        let totalReplies = 0;
+        if (includeReplies && !shouldStop) {
+            const commentsWithReplies = allComments.filter(c => c.code && c.reply_count >= replyThreshold);
+            log(`💬 Fetching replies for ${commentsWithReplies.length} comments...`);
+
+            for (let i = 0; i < commentsWithReplies.length && !shouldStop; i++) {
+                const comment = commentsWithReplies[i];
+                const username = comment.username;
+                const code = comment.code;
+
+                log(`💬 ${i + 1}/${commentsWithReplies.length}: @${username} (${comment.reply_count} replies)`);
+
+                try {
+                    const replies = await fetchCommentReplies(username, code);
+                    if (replies.length > 0) {
+                        comment.replies = replies;
+                        totalReplies += replies.length;
+                    }
+                } catch (e) {
+                    // skip failed fetches
+                }
+
+                // Delay between requests to avoid rate limiting
+                await sleep(1500 + Math.random() * 1000);
+            }
+
+            // Step 5: Remove level-1 comments that are actually replies to other comments
+            // (they show up in DOM as separate comments but are nested replies)
+            const replyCodes = new Set();
+            for (const c of allComments) {
+                if (c.replies && c.replies.length > 0) {
+                    for (const r of c.replies) {
+                        if (r.code) replyCodes.add(r.code);
+                    }
+                }
+            }
+
+            // Filter out comments whose code matches a reply code
+            const filteredComments = allComments.filter(c => {
+                if (!c.code) return true; // keep DOM-only comments
+                return !replyCodes.has(c.code);
+            });
+
+            const removed = allComments.length - filteredComments.length;
+            if (removed > 0) {
+                log(`🧹 Removed ${removed} duplicate reply-comments`);
+            }
+
+            // Replace allComments reference
+            allComments.length = 0;
+            allComments.push(...filteredComments);
+
+            log(`💬 Total replies fetched: ${totalReplies}`);
+        }
 
         singlePostData = {
             url: window.location.href,
             original_post: originalPost,
             comments: allComments,
             total_comments: allComments.length,
+            total_replies: totalReplies,
             scraped_at: new Date().toISOString(),
         };
 
@@ -1127,41 +1274,226 @@
         const countEl = document.getElementById('ts-count-posts');
         if (countEl) countEl.textContent = allComments.length;
         const textEl = document.getElementById('ts-count-text');
-        if (textEl) textEl.textContent = allComments.filter(c => c.text).length;
+        if (textEl) textEl.textContent = totalReplies;
 
-        log(`✅ Done: ${allComments.length} comments`);
+        if (shouldStop) log('⏹ Stopped');
+        log(`✅ Done: ${allComments.length} comments, ${totalReplies} replies`);
 
         btn.disabled = false;
+        stopBtn.disabled = true;
         document.getElementById('ts-dl').disabled = false;
         document.getElementById('ts-md').disabled = false;
     }
 
+    async function fetchCommentReplies(username, code) {
+        const url = `https://${window.location.hostname}/@${username}/post/${code}`;
+        const replies = [];
+
+        try {
+            const resp = await fetch(url, {
+                headers: { 'Accept': 'text/html' },
+                credentials: 'include',
+            });
+            if (!resp.ok) return replies;
+
+            const html = await resp.text();
+
+            const scriptRegex = /<script[^>]*type="application\/json"[^>]*data-sjs[^>]*>([\s\S]*?)<\/script>/g;
+            let match;
+
+            while ((match = scriptRegex.exec(html)) !== null) {
+                const content = match[1];
+                if (!content.includes('thread_items')) continue;
+
+                try {
+                    const data = JSON.parse(content);
+                    const threadItems = findNestedKey(data, 'thread_items');
+
+                    for (const items of threadItems) {
+                        if (!Array.isArray(items) || items.length < 2) continue;
+                        // First item = the comment itself, rest = replies to it
+                        for (let i = 1; i < items.length; i++) {
+                            const item = items[i];
+                            const post = item?.post;
+                            if (!post) continue;
+
+                            const replyText = post.caption?.text || '';
+                            const replyUsername = post.user?.username || '';
+                            if (!replyUsername && !replyText) continue;
+
+                            // Skip if this is the same as the parent comment (dedup)
+                            if (post.code === code) continue;
+
+                            // Skip duplicate replies within this fetch
+                            const isDup = replies.find(r =>
+                                r.username === replyUsername &&
+                                r.text === replyText
+                            );
+                            if (isDup) continue;
+
+                            replies.push({
+                                text: replyText,
+                                username: replyUsername,
+                                published_on: post.taken_at || null,
+                                like_count: post.like_count || 0,
+                                code: post.code || '',
+                            });
+                        }
+                    }
+                } catch (e) {}
+            }
+        } catch (e) {}
+
+        return replies;
+    }
+
     function extractCommentsFromDOM() {
         const comments = [];
-        const textEls = document.querySelectorAll('span[dir="auto"], div[dir="auto"]');
         const seen = new Set();
 
-        for (const el of textEls) {
-            const text = (el.innerText || '').trim();
-            if (text.length < 3 || seen.has(text)) continue;
-            if (/^\d+[smhdw]$/.test(text)) continue;
-            if (['Ikuti', 'Follow', 'Diikuti', 'Lainnya', 'More', 'Balas'].includes(text)) continue;
+        // === BLACKLISTS ===
+        const UI_BLACKLIST = new Set([
+            'untuk anda', 'utas baru', 'aktivitas', 'profil', 'insight',
+            'tersimpan', 'mengikuti', 'postingan hantu', 'tampilkan lebih banyak',
+            'lebih banyak', 'populer', 'lihat aktivitas', 'pembuat', 'tandai spoiler',
+            'ikuti', 'follow', 'diikuti', 'following', 'lainnya', 'more', 'balas',
+            'suka', 'like', 'bagikan', 'share', 'kirim', 'send', 'simpan', 'save',
+            'laporkan', 'report', 'blokir', 'block', 'salin tautan', 'copy link',
+            'sembunyikan', 'hide', 'hapus', 'delete', 'edit', 'pin', 'sematkan',
+            'terjemahkan', 'translate', 'for you', 'new thread', 'activity',
+            'profile', 'saved', 'search', 'cari', 'higgsfield',
+        ]);
 
-            // Find username near this text
-            const container = el.closest('[data-pressable-container]') || el.parentElement?.parentElement?.parentElement?.parentElement;
-            if (!container) continue;
+        // Patterns that indicate non-comment text
+        const SKIP_PATTERNS = [
+            /^\d+[smhdw]$/,                          // "5m", "2h", "3d"
+            /^\d+\s*(hari|jam|menit|detik|minggu|bulan|tahun)$/i, // "3 hari", "44 menit"
+            /^\d+\s*(hour|minute|second|day|week|month|year)s?\s*ago$/i, // "3 days ago"
+            /^\d[\d.,]*\s*(rb|ribu|jt|juta|k|m|b)?\s*(tayangan|views?|likes?|suka|balasan|replies?)$/i, // "14,7 rb tayangan"
+            /^(youtube|instagram|twitter|tiktok|facebook|threads)\.(com|net|org)/i, // link previews
+            /^https?:\/\//i,                         // URLs
+            /^@[a-zA-Z0-9._]+$/,                     // @mentions alone
+            /^[a-zA-Z0-9._]{3,30}$/,                 // bare usernames (no spaces, short)
+            /^(youtube|ig|fb|tt)\.com\/@/i,          // channel links
+            /^.*\.\.\.$/, // truncated link previews like "youtube.com/@pasa…" — actually check below
+            /^Beberapa balasan sudah disembunyikan/i,
+            /^Lihat semua$/i,
+            /^Balas ke .+\.\.\.$/i,                  // "Balas ke nouraa_za..."
+        ];
 
+        // Find actual comment containers — look for the main content area
+        // Threads uses a specific structure: each comment is in a pressable container
+        const containers = document.querySelectorAll('[data-pressable-container]');
+
+        for (const container of containers) {
+            // Skip if this container is inside navigation/sidebar
+            if (container.closest('nav, [role="navigation"], [role="banner"], [role="complementary"]')) continue;
+
+            // Find username from this container
             let username = '';
-            const links = container.querySelectorAll('a[href*="/@"]');
-            for (const link of links) {
-                const m = link.getAttribute('href')?.match(/\/@([^/]+)/);
+            const profileLinks = container.querySelectorAll('a[href*="/@"]');
+            for (const link of profileLinks) {
+                const href = link.getAttribute('href') || '';
+                // Skip post links, only get profile links
+                if (href.includes('/post/')) continue;
+                const m = href.match(/\/@([^/]+)/);
                 if (m) { username = m[1]; break; }
             }
 
-            if (text.length > 5) {
-                seen.add(text);
-                comments.push({ text, username, published_on: null, like_count: 0 });
+            // Get text elements within this container
+            const textEls = container.querySelectorAll('span[dir="auto"], div[dir="auto"]');
+            const textParts = [];
+
+            for (const el of textEls) {
+                const text = (el.innerText || el.textContent || '').trim();
+                if (!text || text.length < 2) continue;
+
+                // Skip if inside a nested pressable container (child comment)
+                const closestContainer = el.closest('[data-pressable-container]');
+                if (closestContainer !== container) continue;
+
+                const textLower = text.toLowerCase();
+
+                // Skip blacklisted UI text
+                if (UI_BLACKLIST.has(textLower)) continue;
+
+                // Skip pattern matches
+                let skip = false;
+                for (const pattern of SKIP_PATTERNS) {
+                    if (pattern.test(text)) { skip = true; break; }
+                }
+                if (skip) continue;
+
+                // Skip if text is just the username (display name or handle)
+                if (username && (textLower === username.toLowerCase() || text === username)) continue;
+
+                // Skip very short text that looks like a username (no spaces, alphanumeric + dots/underscores)
+                if (text.length < 25 && /^[a-zA-Z0-9._]+$/.test(text)) continue;
+
+                // Skip link preview titles (usually short, inside link elements)
+                const parentLink = el.closest('a');
+                if (parentLink) {
+                    const linkHref = parentLink.getAttribute('href') || '';
+                    if (linkHref.includes('/@') && !linkHref.includes('/post/')) continue; // profile link
+                    // If it's an external link preview, skip short text
+                    if (linkHref.startsWith('http') && text.length < 40 && !text.includes(' ')) continue;
+                    // Skip link card titles — short text inside external links (e.g. "Suci Viarani", "Ahmad Hartaji")
+                    if (linkHref.startsWith('http') && !linkHref.includes('threads.net') && !linkHref.includes('threads.com') && text.length < 50) continue;
+                }
+
+                // Skip text that looks like a link preview card title
+                // (appears right after a URL in the same container, typically a channel/page name)
+                const parentEl = el.parentElement;
+                if (parentEl) {
+                    // Check if this element is inside a link preview card (div with specific structure)
+                    const cardParent = el.closest('[role="link"], [data-link-preview], a[href^="http"]');
+                    if (cardParent) {
+                        const cardHref = cardParent.getAttribute('href') || '';
+                        if (cardHref && !cardHref.includes('threads.net') && !cardHref.includes('threads.com')) continue;
+                    }
+                }
+
+                // Skip "Terjemahkan" suffix — it's a translate button
+                const cleanText = text.replace(/\s*Terjemahkan\s*$/i, '').trim();
+                if (!cleanText) continue;
+
+                textParts.push(cleanText);
             }
+
+            // Merge text parts into a single comment (handles multi-paragraph)
+            if (textParts.length === 0) continue;
+
+            // Post-process: remove trailing link preview titles
+            // These are typically short capitalized names at the end (channel/page names)
+            while (textParts.length > 1) {
+                const lastPart = textParts[textParts.length - 1];
+                // Link preview title pattern: short (< 30 chars), title-cased or all caps,
+                // no common sentence endings, looks like a name/brand
+                const isLikelyTitle = lastPart.length < 35 &&
+                    !lastPart.includes('😭') && !lastPart.includes('😅') && !lastPart.includes('🤭') &&
+                    /^[A-Z\u00C0-\u024F]/.test(lastPart) &&
+                    !lastPart.endsWith('.') && !lastPart.endsWith('!') && !lastPart.endsWith('?') &&
+                    !lastPart.includes(' aku ') && !lastPart.includes(' saya ') &&
+                    !lastPart.includes(' kak') && !lastPart.includes(' ka ') &&
+                    // Looks like a proper name (2-4 words, each capitalized)
+                    /^([A-Z][a-zA-Z0-9]*[\s]?){1,4}$/.test(lastPart);
+                if (isLikelyTitle) {
+                    textParts.pop();
+                } else {
+                    break;
+                }
+            }
+
+            const fullText = textParts.join('\n').trim();
+
+            if (!fullText || fullText.length < 3) continue;
+            if (seen.has(fullText)) continue;
+
+            // Final validation: must have username OR be substantial text
+            if (!username && fullText.length < 15) continue;
+
+            seen.add(fullText);
+            comments.push({ text: fullText, username, published_on: null, like_count: 0 });
         }
 
         return comments;
@@ -1174,7 +1506,10 @@
         const url = URL.createObjectURL(blob);
 
         const code = window.location.pathname.match(/\/post\/([^/]+)/) || window.location.pathname.match(/\/t\/([^/]+)/);
-        const filename = `thread_${code ? code[1] : 'post'}_comments.json`;
+        const postCode = code ? code[1] : 'post';
+        const postUsername = singlePostData.original_post?.username || 'unknown';
+        const dateStr = new Date().toISOString().slice(0, 10);
+        const filename = `${postUsername}_${postCode}_comments_${dateStr}.json`;
 
         const a = document.createElement('a');
         a.href = url; a.download = filename;
@@ -1189,7 +1524,10 @@
         const { original_post, comments } = singlePostData;
 
         let md = `# Thread Discussion\n\n`;
-        md += `> Scraped on ${new Date().toLocaleDateString('id-ID', { year: 'numeric', month: 'long', day: 'numeric' })}\n\n`;
+        md += `> Scraped on ${new Date().toLocaleDateString('id-ID', { year: 'numeric', month: 'long', day: 'numeric' })}\n`;
+        md += `> ${comments.length} comments`;
+        if (singlePostData.total_replies) md += `, ${singlePostData.total_replies} replies`;
+        md += `\n\n`;
 
         if (original_post) {
             md += `## Original Post by @${original_post.username}\n\n`;
@@ -1198,13 +1536,44 @@
             md += `---\n\n`;
         }
 
-        md += `## Comments (${comments.length})\n\n`;
+        // Only include comments with valid username and text
+        const validComments = comments.filter(c => c.username && c.text && c.text.trim().length > 0);
 
-        for (const c of comments) {
-            md += `**@${c.username}**\n`;
-            md += `${c.text || '*(no text)*'}\n`;
+        md += `## Comments (${validComments.length})\n\n`;
+
+        for (const c of validComments) {
+            md += `**@${c.username}**`;
+            if (c.published_on) {
+                const date = new Date(c.published_on * 1000).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' });
+                md += ` · ${date}`;
+            }
+            md += `\n`;
+            md += `${c.text}\n`;
             if (c.like_count) md += `❤️ ${c.like_count}`;
-            md += `\n\n---\n\n`;
+            md += `\n`;
+
+            // Render nested replies
+            if (c.replies && c.replies.length > 0) {
+                md += `\n`;
+                for (const r of c.replies) {
+                    if (!r.username || !r.text) continue;
+                    md += `> **@${r.username}**`;
+                    if (r.published_on) {
+                        const rDate = new Date(r.published_on * 1000).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' });
+                        md += ` · ${rDate}`;
+                    }
+                    md += `\n`;
+                    // Indent reply text with blockquote
+                    const replyLines = r.text.split('\n');
+                    for (const line of replyLines) {
+                        md += `> ${line}\n`;
+                    }
+                    if (r.like_count) md += `> ❤️ ${r.like_count}\n`;
+                    md += `>\n`;
+                }
+            }
+
+            md += `\n---\n\n`;
         }
 
         md += `\n🔗 [Open thread](${singlePostData.url})\n`;
@@ -1212,7 +1581,10 @@
         const blob = new Blob([md], { type: 'text/markdown;charset=utf-8;' });
         const url = URL.createObjectURL(blob);
         const code = window.location.pathname.match(/\/post\/([^/]+)/) || window.location.pathname.match(/\/t\/([^/]+)/);
-        const filename = `thread_${code ? code[1] : 'post'}_comments.md`;
+        const postCode = code ? code[1] : 'post';
+        const postUsername = singlePostData.original_post?.username || 'unknown';
+        const dateStr = new Date().toISOString().slice(0, 10);
+        const filename = `${postUsername}_${postCode}_comments_${dateStr}.md`;
 
         const a = document.createElement('a');
         a.href = url; a.download = filename;

@@ -1,6 +1,13 @@
 # Output files
 *.json
 *.csv
+*_comments*.md
+*_posts*.md
+
+# Screenshots
+*.png
+*.jpg
+*.jpeg
 
 # OS
 .DS_Store
